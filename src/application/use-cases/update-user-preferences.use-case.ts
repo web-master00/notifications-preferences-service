@@ -1,6 +1,6 @@
 import { Channel, NotificationType } from "../../domain/enums";
 import { UnitOfWork } from "../../domain/unit-of-work";
-import { Logger } from "../../infrastructure/logger";
+import { Logger, pseudonymize } from "../../infrastructure/logger";
 
 export interface PreferenceToggleCommand {
   notificationType: NotificationType;
@@ -59,7 +59,7 @@ export class UpdateUserPreferencesUseCase {
     if (command.preferences) {
       for (const toggle of command.preferences) {
         log.info("user_preference_changed", {
-          userId: command.userId,
+          userIdHash: pseudonymize(command.userId),
           notificationType: toggle.notificationType,
           channel: toggle.channel,
           enabled: toggle.enabled,
@@ -68,10 +68,12 @@ export class UpdateUserPreferencesUseCase {
     }
 
     if (command.quietHours === null) {
-      log.info("quiet_hours_cleared", { userId: command.userId });
+      log.info("quiet_hours_cleared", {
+        userIdHash: pseudonymize(command.userId),
+      });
     } else if (command.quietHours) {
       log.info("quiet_hours_changed", {
-        userId: command.userId,
+        userIdHash: pseudonymize(command.userId),
         timezone: command.quietHours.timezone,
         startTime: command.quietHours.startTime,
         endTime: command.quietHours.endTime,

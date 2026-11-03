@@ -3,6 +3,7 @@ import {
   UnitOfWork,
 } from "../domain/unit-of-work";
 import { UpdateUserPreferencesUseCase } from "../application/use-cases/update-user-preferences.use-case";
+import { pseudonymize } from "../infrastructure/logger";
 import {
   InMemoryQuietHoursRepository,
   InMemoryUserPreferenceRepository,
@@ -127,5 +128,34 @@ describe("UpdateUserPreferencesUseCase transactional behavior", () => {
 
     expect(defaultLogger.events).toEqual([]);
     expect(requestLogger.events).toContain("user_preference_changed");
+  });
+
+  it("pseudonymizes user identifiers in preference change logs", async () => {
+    const userPrefs = new InMemoryUserPreferenceRepository();
+    const quietHours = new InMemoryQuietHoursRepository();
+    const captured: Array<{ event: string; data?: Record<string, unknown> }> = [];
+    const logger = {
+      info: (event: string, data?: Record<string, unknown>) =>
+        captured.push({ event, data }),
+      warn: () => {},
+      error: () => {},
+      child() { return this; },
+    };
+    const useCase = new UpdateUserPreferencesUseCase(
+      {
+        run<T>(fn: (repos: TransactionalRepositories) => Promise<T>): Promise<T> {
+          return fn({ userPrefs, quietHours });
+        },
+      },
+      logger,
+    );
+
+    await useCase.execute({ userId: "private-user-id", quietHours: null });
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.data).toEqual({
+      userIdHash: pseudonymize("private-user-id"),
+    });
+    expect(JSON.stringify(captured)).not.toContain("private-user-id");
   });
 });

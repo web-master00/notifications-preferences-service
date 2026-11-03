@@ -68,6 +68,24 @@ describe("zod schemas", () => {
       });
       expect(result.success).toBe(true);
     });
+
+    it("rejects duplicate notification type and channel entries", () => {
+      const result = UpdatePreferencesBodySchema.safeParse({
+        preferences: [
+          {
+            notificationType: "marketing_email",
+            channel: "email",
+            enabled: true,
+          },
+          {
+            notificationType: "marketing_email",
+            channel: "email",
+            enabled: false,
+          },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
   });
 
   describe("EvaluateBodySchema", () => {
@@ -91,6 +109,28 @@ describe("zod schemas", () => {
         datetime: "2026-05-21T12:00:00Z",
       });
       expect(result.success).toBe(false);
+    });
+
+    it("requires an explicit timezone offset", () => {
+      const result = EvaluateBodySchema.safeParse({
+        userId: "u1",
+        notificationType: "marketing_email",
+        channel: "email",
+        region: "EU",
+        datetime: "2026-05-21T12:00:00",
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts a valid ISO datetime with an explicit offset", () => {
+      const result = EvaluateBodySchema.safeParse({
+        userId: "u1",
+        notificationType: "marketing_email",
+        channel: "email",
+        region: "EU",
+        datetime: "2026-05-21T12:00:00+02:00",
+      });
+      expect(result.success).toBe(true);
     });
   });
 });

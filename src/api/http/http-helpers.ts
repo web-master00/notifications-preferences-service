@@ -7,6 +7,8 @@ export function sendJson(
   status: number,
   body: unknown,
 ): void {
+  if (res.destroyed || res.writableEnded) return;
+
   const payload = JSON.stringify(body);
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");

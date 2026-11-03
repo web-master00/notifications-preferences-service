@@ -32,14 +32,22 @@ export function createRouter({
   return async (req, res) => {
     const incomingRequestId = req.headers["x-request-id"];
     const requestId =
-      typeof incomingRequestId === "string" && incomingRequestId.length > 0
+      typeof incomingRequestId === "string" &&
+      incomingRequestId.length <= 128 &&
+      /^[A-Za-z0-9._:-]+$/.test(incomingRequestId)
         ? incomingRequestId
         : randomUUID();
     res.setHeader("X-Request-Id", requestId);
 
     const method = req.method ?? "GET";
     const rawUrl = req.url ?? "/";
-    const reqLogger = logger.child({ requestId, method, path: rawUrl });
+    const reqLogger = logger.child({
+      requestId,
+      method,
+      path: USER_PREFS_REGEX.test(rawUrl.split("?", 1)[0] ?? "")
+        ? "/users/:id/preferences"
+        : rawUrl.split("?", 1)[0] ?? "/",
+    });
 
     let pathname = rawUrl;
     try {
@@ -95,10 +103,11 @@ export function createRouter({
 
       sendJson(res, 404, { error: "not_found" });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "unknown_error";
-      const stack = err instanceof Error ? err.stack : undefined;
-      reqLogger.error("request_failed", { message, stack });
-      sendJson(res, 500, { error: "internal_error" });
+      const errorName = err instanceof Error ? err.name : "UnknownError";
+      reqLogger.error("request_failed", { errorName });
+      if (!res.headersSent && !res.destroyed) {
+        sendJson(res, 500, { error: "internal_error" });
+      }
     }
   };
 }

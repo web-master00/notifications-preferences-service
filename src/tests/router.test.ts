@@ -153,6 +153,15 @@ describe("HTTP router", () => {
     expect(r.headers["x-request-id"]).toBe("req-123");
   });
 
+  it("replaces malformed or oversized request IDs", async () => {
+    const r = await request(port, "GET", "/live", undefined, {
+      "X-Request-Id": "x".repeat(129),
+    });
+    expect(r.status).toBe(200);
+    expect(r.headers["x-request-id"]).not.toBe("x".repeat(129));
+    expect(r.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/i);
+  });
+
   it("returns 413 for oversize body", async () => {
     const big = "a".repeat(2_000_000);
     const r = await request(port, "POST", "/evaluate", {
