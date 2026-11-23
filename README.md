@@ -1,32 +1,32 @@
 # Notification Preferences Service
 
-Сервис, который решает, можно ли отправить пользователю конкретное
-уведомление, и хранит его настройки.
+Service that decides whether a specific notification may be sent to a user,
+and stores their preference settings.
 
-Стек: TypeScript, Node.js (встроенный `http`), PostgreSQL + Prisma,
-zod для валидации, luxon для таймзон, Jest для тестов.
+Stack: TypeScript, Node.js (built-in `http`), PostgreSQL + Prisma,
+zod for validation, luxon for time zones, Jest for tests.
 
-## Запуск
+## Getting started
 
-### Через Docker (одной командой)
+### With Docker (one command)
 
 ```bash
 docker compose up --build
 ```
 
-Значения Postgres по умолчанию предназначены только для локальной разработки.
-Для другого окружения задайте `POSTGRES_USER`, `POSTGRES_PASSWORD` и
-`POSTGRES_DB` через `.env` или окружение. Для нестандартного адреса подключения
-контейнера приложения используйте `DOCKER_DATABASE_URL`. `DATABASE_URL` из
-`.env.example` предназначен для локального запуска приложения вне Docker.
+Default Postgres values are for local development only.
+For another environment, set `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
+`POSTGRES_DB` via `.env` or the environment. For a non-standard app-container
+database URL, use `DOCKER_DATABASE_URL`. `DATABASE_URL` from `.env.example`
+is intended for running the app locally outside Docker.
 
-Эта команда сама: соберёт образ, поставит зависимости, поднимет Postgres,
-дождётся его готовности, накатит миграции, прогонит сид и запустит сервис
-на `http://localhost:3000`. Делать руками ничего не надо.
+This command builds the image, installs dependencies, starts Postgres,
+waits until it is ready, runs migrations, seeds the database, and starts
+the service at `http://localhost:3000`. No manual steps required.
 
-### Локально (без Docker для приложения)
+### Locally (without Docker for the app)
 
-Если хочется гонять `npm run dev` с автоперезагрузкой:
+If you want `npm run dev` with auto-reload:
 
 ```bash
 cp .env.example .env
@@ -37,66 +37,65 @@ npm run db:seed
 npm run dev
 ```
 
-## Тесты
+## Tests
 
 ```bash
 npm test
 ```
 
-Тесты идут на in-memory репозиториях, Postgres для них не нужен.
+Tests use in-memory repositories; Postgres is not required.
 
 ## API
 
-- `GET /users/:id/preferences` — текущие настройки (merge дефолтов и
-  пользовательских) + quiet hours.
-- `POST /users/:id/preferences` — обновить настройки и/или quiet hours.
-  Идемпотентно. Чтобы сбросить quiet hours — прислать `"quietHours": null`.
+- `GET /users/:id/preferences` — current settings (merged defaults and
+  user overrides) + quiet hours.
+- `POST /users/:id/preferences` — update settings and/or quiet hours.
+  Idempotent. To clear quiet hours, send `"quietHours": null`.
 - `POST /evaluate` — `{ userId, notificationType, channel, region, datetime }`
   → `{ decision, reason }`.
 
-Плюс `GET /live` и `GET /ready` для проб.
+Also `GET /live` and `GET /ready` for health probes.
 
-## Архитектура
+## Architecture
 
 ```
 src/
-├── domain/          доменные типы, правила, интерфейсы репозиториев
-├── application/     use-case'ы
-├── infrastructure/  Prisma, репозитории, Unit of Work, логгер
-└── api/             HTTP роутер, контроллеры, zod-схемы
+├── domain/          domain types, rules, repository interfaces
+├── application/     use cases
+├── infrastructure/  Prisma, repositories, Unit of Work, logger
+└── api/             HTTP router, controllers, zod schemas
 ```
 
-Доменная логика синхронная и тупая: `NotificationEvaluatorService` получает
-уже загруженные значения и применяет правила в нужном порядке —
-глобальная политика → quiet hours (только для маркетинга, транзакционные
-проходят) → пользовательская настройка → дефолт → `no_preference_configured`.
-Это удобно тестировать.
+Domain logic is synchronous and straightforward: `NotificationEvaluatorService`
+receives already-loaded values and applies rules in order —
+global policy → quiet hours (marketing only; transactional passes) →
+user preference → default → `no_preference_configured`.
+That makes it easy to test.
 
-Репозитории — интерфейсы в `domain/`, реализации в `infrastructure/`.
-В тестах их подменяю на in-memory. Изменения настроек идут через Unit of
-Work (`prisma.$transaction`), логи об изменениях пишу только после успешного
-коммита. Идемпотентность — через `upsert` по уникальным ключам.
+Repositories are interfaces in `domain/` with implementations in
+`infrastructure/`. Tests swap them for in-memory versions. Preference
+updates go through a Unit of Work (`prisma.$transaction`); change logs are
+written only after a successful commit. Idempotency uses `upsert` on unique keys.
 
-Prisma-енумы (`SCREAMING_CASE`) и доменные (`snake_case`) разведены через
-маппер в одном файле — домен не зависит от хранилища.
+Prisma enums (`SCREAMING_CASE`) and domain enums (`snake_case`) are mapped
+in a single file so the domain stays independent of storage.
 
-Валидация на входе через zod, включая IANA timezone и `startTime !== endTime`.
-Лимит на тело — 1 МБ. У каждого запроса свой `X-Request-Id` (приходящий или
-сгенерированный), он же в логах. В `evaluate_decision` `userId` хешируется,
-чтобы не светить PII. Идентификаторы пользователей в логах обновления настроек
-также псевдонимизируются; `X-Request-Id` принимается только в ограниченном
-безопасном формате.
+Input validation uses zod, including IANA timezones and `startTime !== endTime`.
+Body size limit is 1 MB. Each request has its own `X-Request-Id` (incoming or
+generated), which also appears in logs. In `evaluate_decision`, `userId` is
+hashed to avoid exposing PII. User IDs in preference-update logs are also
+pseudonymized; `X-Request-Id` is accepted only in a restricted safe format.
 
-## Что бы добавила для прода
+## What I would add for production
 
-- Авторизация — сейчас сервис верит `userId` из URL. Псевдонимизация логов не
-  заменяет аутентификацию и авторизацию.
-- Prometheus-метрики на `evaluate` (decision/reason/type/channel/region) и
-  латентность. Логи под это уже размечены.
-- Optimistic locking на обновлении настроек.
-- Redis-кеш на `evaluate` — читается часто, меняется редко.
-- Bulk `/evaluate` для рассыльщиков.
-- Audit log изменений предпочтений.
-- Интеграционные тесты на реальной Postgres через Testcontainers.
-- Категорию `transactional`/`marketing` вынести из кода в БД, чтобы
-  добавлять новые типы без релиза.
+- Auth — the service currently trusts `userId` from the URL. Log
+  pseudonymization is not a substitute for authentication and authorization.
+- Prometheus metrics on `evaluate` (decision/reason/type/channel/region) and
+  latency. Logs are already labeled for this.
+- Optimistic locking on preference updates.
+- Redis cache for `evaluate` — read-heavy, write-rare.
+- Bulk `/evaluate` for campaign senders.
+- Audit log for preference changes.
+- Integration tests against real Postgres via Testcontainers.
+- Move `transactional`/`marketing` categories from code into the DB so new
+  types can be added without a release.
